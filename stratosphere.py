@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from troposphere import autoscaling, sns, sqs, elasticloadbalancing, Template, Ref, Parameter, Join, route53    
+from troposphere import rds, elasticache, ec2, autoscaling, sns, sqs, elasticloadbalancing, Template, Ref, Parameter, Join, route53, cloudwatch
 from types import *
 import logging
 from logging import debug, info, warning
@@ -13,18 +13,41 @@ logging.basicConfig(format='%(levelname)s:%(message)s',filename='cfv2.log',level
 serveis = {
     'AS:LC' : autoscaling.LaunchConfiguration ,
     'AS:MC' : autoscaling.MetricsCollection,
+    'AS:NC' : autoscaling.NotificationConfigurations,
     'SNS:T' : sns.Topic ,
     'SQS:Q' : sqs.Queue,
     'ELB:LB' : elasticloadbalancing.LoadBalancer,
     'AS:ASG' : autoscaling.AutoScalingGroup,
     'R53:RSG': route53.RecordSetGroup,
-    'R53:HZ' : route53.HostedZone
+    'R53:HZ' : route53.HostedZone,
+    'CW:A': cloudwatch.Alarm,
+    'CW:MD': cloudwatch.MetricDimension,
+    'AS:SP': autoscaling.ScalingPolicy,
+    'AS:T': autoscaling.Tag,
+    'EC2:T': ec2.Tag,
+    'EC2:VPC': ec2.VPC,
+    'EC2:S': ec2.Subnet,
+    'EC2:IG': ec2.InternetGateway,
+    'EC2:VGA': ec2.VPCGatewayAttachment,
+    'EC2:RT': ec2.RouteTable,
+    'EC2:R': ec2.Route,
+    'EC2:SRTA': ec2.SubnetRouteTableAssociation,
+    'EC2:NA': ec2.NetworkAcl,
+    'EC2:NAE': ec2.NetworkAclEntry,
+    'EC2:SNAA': ec2.SubnetNetworkAclAssociation,
+    'RDS:DBSG': rds.DBSubnetGroup,
+    'EC:SG': elasticache.SubnetGroup
     }
+
 vars = {}
 objectes = {}
 params = {}
+default = {}
+for k in serveis.iterkeys():
+    default[k] = {}
 fitxer = []
 headers = ""
+
 t = Template()
 
 def crear_dict (row,headers):
@@ -34,7 +57,7 @@ def crear_dict (row,headers):
             tmp_d[headers[x].strip()] = row[x].strip()
     return tmp_d
 
-with open('WP-env.csv', 'rb') as csvfile:
+with open('WP-core.csv', 'rb') as csvfile:
      fitxer_temp = csv.reader(csvfile, delimiter=',', quotechar='"')
      for x in fitxer_temp: fitxer.append(x)
 
@@ -47,11 +70,28 @@ for index, row in enumerate(fitxer):
         objectes[row[1]] = t.add_parameter(Parameter(row[1],**d))
     elif camp0 == 'vars':
         info('({idx}) Creant variable: {value}'.format(value=row[1],idx=index))
-        vars[row[1]] = crear_dict(row,headers)
+        d = crear_dict(row,headers)
+        for key in d:
+            for par in params:
+                if d[key].find(par) <> -1:
+                    # Si trobem un parametre al texte que hi ha.
+                    if len(par) < len(d[key]):
+                        if d[key][len(par)+1] == "-":
+                            texte = d[key][len(par)+1:]
+                        else:
+                            texte = d[key][len(par):]
+                        d[key] = Join("-", [Ref(objectes[par]),texte])
+                    else:
+                        d[key] = Ref(objectes[par])
+        vars[row[1]]  = d
         debug('({idx}) Variable: {var} -> {value}'.format(var = row[1],value=vars[row[1]],idx=index))
     elif camp0 in serveis:
         info('({idx}) {value} en serveis'.format(value=row[0],idx=index))
-        d = crear_dict(row,headers)
+        if row[0] in default:
+            d = default[row[0]]
+            d.update(crear_dict(row,headers))
+        else:
+            d = crear_dict(row,headers)
         for key in d:
             # mirar el tipus de camp que ens demana per cada una de les keys i adaptarlo segons necessitat.
             if key in serveis[row[0]].props:
@@ -77,14 +117,14 @@ for index, row in enumerate(fitxer):
                         for par in params:
                             if d[key].find(par) <> -1:
                                 # Si trobem un parametre al texte que hi ha.
-                                print index, "TROBAT PARAM", par
                                 if len(par) < len(d[key]):
                                     if d[key][len(par)+1] == "-":
                                         texte = d[key][len(par)+1:]
                                     else:
                                         texte = d[key][len(par):]
                                 d[key] = Join("-", [Ref(objectes[par]),texte])
-
+                            else:
+                                d[key] = Ref(objectes[par])
 
                     debug('({idx}) {value} -> {final}'.format(final=d[key],value=key,idx=index))
                 elif tipus_camp is list:
@@ -95,7 +135,7 @@ for index, row in enumerate(fitxer):
                     elif d[key].split(',')[0] in vars:
                         d[key] = [ vars[x] for x in d[key].split(',')]
                     else:
-                        d[key] = [ d[key]]
+                        d[key] = [ x.strip() for x in d[key].split(',') ]
                     debug('({idx}) {value} -> {final}'.format(final=d[key],value=key,idx=index))
                 elif type(tipus_camp) is ListType:
                     tipus_camp2 = serveis[row[0]].props[key][0][0]
@@ -114,21 +154,29 @@ for index, row in enumerate(fitxer):
                         else:
                             d[key] = [tipus_camp2(x,**vars[x]) for x in d[key].split(',')]
                     debug('({idx}) {value} -> {final}'.format(final=d[key],value=key,idx=index))
+            elif key in ['DependsOn']:
+                d[key] = [ x.strip()  for x in d[key].split(',') ]
             else:
                 warning('({idx}) {key} no existeix a {value}'.format(key=key,value=row[0],idx=index))
         instancia = serveis[row[0]](row[1],**d)
         objectes[row[1]] = instancia
-        t.add_resource(instancia)
+        try:
+            if serveis[row[0]].resource_type:
+                t.add_resource(instancia)
+        except:
+            pass
     elif camp0 == "":
         if "".join(row).strip() == "":
             info('({idx}) Linia en blanc'.format(idx=index))
         else:
             headers = row
             info('({idx}) Capçaleres'.format(idx=index))
+    elif camp0 == "default":
+        d = crear_dict(row,headers)
+        default[row[1]].update(d)
     elif camp0 == "#":
         info('({idx}) Comentari'.format(idx=index))
         pass
     else:
         warning('({idx}) {value} no es res'.format(value=row[0],idx=index))
-
 print t.to_json()
