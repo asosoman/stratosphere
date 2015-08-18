@@ -60,6 +60,9 @@ def parse_args():
 def change_params(texte):
     # Looks if the text is a parameter, in that case changes it to a Join or Ref.
     debug("Init Change Params "+str(texte))
+    if isinstance(texte, Ref):
+        debug("Change Params REF FOUND"+str(texte))
+        return texte
     for par in params:
         if texte.find(par) <> -1:
             # We found a Parameter! Check if the parameter is all the text or only the first part.
@@ -147,6 +150,7 @@ def process(fitxer):
                         pass
                     elif tipus_camp is basestring:
                         debug('({idx}) {value} is Basestring'.format(servei=row[0],value=key,idx=index))
+                        debug('({idx}) Abans {value} '.format(value=d[key],idx=index))
                         # comprobar els tres casos: OBJECTE (REF), variable (DICT) o texte directe.
                         if d[key] in objectes:
                             d[key] = Ref(d[key].strip())
@@ -155,6 +159,7 @@ def process(fitxer):
                         else:
                             #Comprobar si hi ha algún parametre global
                             d[key] = change_params(d[key])
+                        debug('({idx}) Despres {value} '.format(value=d[key],idx=index))
                         debug('({idx}) {value} -> {final}'.format(final=d[key],value=key,idx=index))
                     elif tipus_camp is list:
                         debug('({idx}) {value} is List'.format(servei=row[0],value=key,idx=index))
@@ -202,12 +207,17 @@ def process(fitxer):
                 headers = row
                 info('({idx}) Header'.format(idx=index))
         elif camp0 == "default":
+            info('({idx}) Creating default {default}'.format(idx=index,default=row[1]))
             d = crear_dict(row,headers)
             default[row[1]].update(d)
         elif camp0 == "#":
             info('({idx}) Comment'.format(idx=index))
         elif camp0 == "include":
+            info('({idx}) Include proccessing'.format(idx=index))
+            info(' ')
             fitxer = open_sheet(xls_file,row[1])
+            info(' ')
+            info('({idx}) Include finished'.format(idx=index))
             process(fitxer)
         else:
             warning('({idx}) {value} is not found in any valid value.'.format(value=row[0],idx=index))
