@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from troposphere import autoscaling, sns, sqs, elasticloadbalancing, Template, Ref, Parameter, Join
+from troposphere import autoscaling, sns, sqs, elasticloadbalancing, Template, Ref, Parameter, Join, route53    
 from types import *
 import logging
 from logging import debug, info, warning
@@ -16,7 +16,9 @@ serveis = {
     'SNS:T' : sns.Topic ,
     'SQS:Q' : sqs.Queue,
     'ELB:LB' : elasticloadbalancing.LoadBalancer,
-    'AS:ASG' : autoscaling.AutoScalingGroup
+    'AS:ASG' : autoscaling.AutoScalingGroup,
+    'R53:RSG': route53.RecordSetGroup,
+    'R53:HZ' : route53.HostedZone
     }
 vars = {}
 objectes = {}
